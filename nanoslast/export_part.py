@@ -5,7 +5,7 @@ import os
 from PIL import Image
 from customtkinter import CTkImage
 
-from parquet_tool import (
+from .parquet_tool import (
     extract_info_from_tsv,
     sam_file_signal_search,
     load_signals,
@@ -57,8 +57,8 @@ def create_export_part(parent_frame):
     state['parquet_btn'] = parquet_btn
     state['csv_btn'] = csv_btn
 
-    image_path = "nanoslast_logo.png"  # Změň pokud máš jinou cestu
-    logo_img = CTkImage(light_image=Image.open(image_path), size=(200, 70))
+    image_path = os.path.join(os.path.dirname(__file__), "assets", "nanoslast_logo.png")
+    logo_img = CTkImage(light_image=Image.open(image_path), size=(200, 78))
     image_label = ctk.CTkLabel(frame, image=logo_img, text="")
     image_label.pack(pady=(80, 0))
 

@@ -1,6 +1,8 @@
-# NANOSLAST
+<p align="center">
+  <img src="nanoslast/assets/nanoslast_logo.png" alt="NANOSLAST – Nanopore Signal Local Alignment and Segmentation Tool" width="500">
+</p>
 
-**Nanopore Signal Local Alignment and Segmentation Tool**
+# NANOSLAST
 
 NANOSLAST is a lightweight Python GUI application that links local sequence similarity search (BLAST) to raw Oxford Nanopore signals (squiggles). It lets you find reads containing a sequence of interest, locate the exact part of the raw signal that corresponds to it, and visualize or export that signal segment.
 
@@ -45,13 +47,9 @@ On Windows, use the installer from NCBI and add its `bin` directory to `PATH`.
 
 ## Running
 
-Run the application from the repository directory:
-
 ```bash
 python main.py
 ```
-
-The GUI loads `nanoslast_logo.png` relative to the current working directory, so start the app from the repository directory.
 
 ## Input data
 
@@ -104,18 +102,24 @@ The signal is plotted in pA against time in ms. Each base is highlighted with a 
 
 ## Project structure
 
-| File | Purpose |
-|---|---|
-| `main.py` | Application entry point, sets up the tabs |
-| `search_part.py` | Search tab GUI |
-| `convert_sam_file.py` | SAM → FASTA conversion |
-| `create_blastdb.py` | BLAST database creation (`makeblastdb`) |
-| `blasting.py` | BLAST search (`blastn`) and hit filtering |
-| `export_part.py` | Export tab GUI |
-| `parquet_tool.py` | Signal segment calculation, FAST5/POD5 loading, CSV/Parquet export |
-| `plot_part.py` | Plot tab GUI |
-| `plotting.py` | Signal loading and plotting for a single read |
-| `plot_specific_part.py` | Experimental tab for plotting a specific segment (currently disabled in `main.py`) |
+```
+NANOSLAST/
+├── main.py                    # starts the application
+├── requirements.txt
+└── nanoslast/
+    ├── app.py                 # main window with the tabs
+    ├── search_part.py         # Search tab GUI
+    ├── convert_sam_file.py    # SAM → FASTA conversion
+    ├── create_blastdb.py      # BLAST database creation (makeblastdb)
+    ├── blasting.py            # BLAST search (blastn) and hit filtering
+    ├── export_part.py         # Export tab GUI
+    ├── parquet_tool.py        # signal segment calculation, FAST5/POD5 loading, CSV/Parquet export
+    ├── plot_part.py           # Plot tab GUI
+    ├── plotting.py            # signal loading and plotting for a single read
+    ├── plot_specific_part.py  # experimental tab for plotting a specific segment (disabled)
+    └── assets/
+        └── nanoslast_logo.png
+```
 
 ## Citation
 
