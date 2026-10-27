@@ -1,17 +1,11 @@
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
-import threading
 import os
 from PIL import Image
 from customtkinter import CTkImage
 
-from .parquet_tool import (
-    extract_info_from_tsv,
-    sam_file_signal_search,
-    load_signals,
-    dump_signals_parquet,
-    dump_signals_csv,
-)
+from .background import run_in_background
+from .parquet_tool import export_signals
 
 def create_export_part(parent_frame):
     frame = ctk.CTkFrame(parent_frame)
@@ -94,29 +88,27 @@ def export_file(state, mode="parquet"):
         return
 
     btn = state['parquet_btn'] if mode == "parquet" else state['csv_btn']
+    btn_text = btn.cget("text")
     btn.configure(state="disabled")
 
-    def worker():
-        try:
-            btn.configure(text="Loading TSV...")
-            info = extract_info_from_tsv(tsv)
+    def reset_button():
+        btn.configure(text=btn_text, state="normal")
 
-            btn.configure(text="Searching SAM file...")
-            signal_ranges = sam_file_signal_search(sam, info.keys(), info, mode=mode)
+    def on_success(result):
+        reset_button()
+        written, total = result
+        messagebox.showinfo(
+            "Done", f"{mode.upper()} file created successfully\n{written} of {total} reads exported"
+        )
 
-            btn.configure(text="Loading signals...")
-            signals_data = load_signals(signals, signal_ranges, mode=mode)
+    def on_error(error):
+        reset_button()
+        messagebox.showerror("Error", str(error))
 
-            btn.configure(text=f"Saving to {ext.upper()}...")
-            if mode == "parquet":
-                dump_signals_parquet(signals_data, signal_ranges, output)
-            else:
-                dump_signals_csv(signals_data, signal_ranges, output)
-
-            messagebox.showinfo("Done", f"{ext.upper()} file created successfully")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-        finally:
-            btn.configure(text=f"CREATE {ext.upper()} FILE", state="normal")
-
-    threading.Thread(target=worker).start()
+    run_in_background(
+        btn,
+        lambda progress: export_signals(tsv, sam, signals, output, mode=mode, progress=progress),
+        on_success,
+        on_progress=lambda message: btn.configure(text=message),
+        on_error=on_error,
+    )

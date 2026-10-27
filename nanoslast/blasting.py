@@ -2,15 +2,24 @@ import tempfile
 import pandas as pd
 from Bio.Blast.Applications import NcbiblastnCommandline
 from Bio.Application import ApplicationError
-from tkinter import messagebox
 import os
 
-def blast_search(query: str, database_path, output_file):
+# Maximum number of reads reported per query. BLAST's default (500) and the
+# previous 1000 silently dropped hits for sequences present in many reads.
+MAX_TARGET_SEQS = 1_000_000
 
-    # Write the query sequence to a temporary FASTA file
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as query_file:
-        query_file.write(">Query\n")
-        query_file.write(query)
+def blast_search(queries: list[tuple[str, str]], database_path, output_file) -> int:
+    """
+    Search each query sequence separately in the BLAST database and save
+    all hits to one TSV file (qseqid = query name).
+    queries: [(name, sequence), ...]
+    Returns the number of hits.
+    """
+
+    # Write the query sequences to a temporary FASTA file
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".fasta", delete=False) as query_file:
+        for name, sequence in queries:
+            query_file.write(f">{name}\n{sequence}\n")
 
     database = os.path.normpath(database_path)
 
@@ -20,7 +29,7 @@ def blast_search(query: str, database_path, output_file):
         db=database,
         out=output_file,
         outfmt=6,
-        max_target_seqs=1000,
+        max_target_seqs=MAX_TARGET_SEQS,
         evalue=0.001,
     )
 
@@ -28,14 +37,14 @@ def blast_search(query: str, database_path, output_file):
     try:
         blastn_cline()
     except ApplicationError as e:
-        messagebox.showerror("Error", e.stderr)
-        return
+        raise RuntimeError(f"blastn failed:\n{e.stderr}") from e
+    finally:
+        os.remove(query_file.name)
 
     if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-        messagebox.showinfo("No Hits", "No hits were found.")
-        return
+        return 0
 
-    blast_table = pd.read_csv(output_file, sep="\t", header=None)
+    blast_table = pd.read_csv(output_file, sep="\t", header=None, dtype={0: str, 1: str})
     blast_table.columns = [
         "qseqid",
         "sseqid",
@@ -51,11 +60,11 @@ def blast_search(query: str, database_path, output_file):
         "bitscore",
     ]
 
-    query_length = len(query)
+    query_lengths = blast_table["qseqid"].map({name: len(sequence) for name, sequence in queries})
 
-    # Filter out hits that are shorter than the query sequence
-    filtered_blast_table = blast_table[blast_table["length"] >= query_length - 10]
+    # Filter out hits that are shorter than their query sequence
+    filtered_blast_table = blast_table[blast_table["length"] >= query_lengths - 10]
 
     filtered_blast_table.to_csv(output_file, sep="\t", index=False)
 
-    return
+    return len(filtered_blast_table)

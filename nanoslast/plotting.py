@@ -1,159 +1,80 @@
+from collections import defaultdict
+
 import numpy as np
-import matplotlib.pyplot as plt
-import os
-import h5py
-import pod5 as p5
+import customtkinter as ctk
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
-def sam_file_signal_search(
-    sam_filename, read_id: str
-):
-    def peek_line(f):
-        pos = f.tell()
-        line = f.readline()
-        f.seek(pos)
-        return line
+from .sam_reader import base_boundaries, find_sam_record
+from .signal_reader import load_signals
 
-    with open(sam_filename, "r") as sam:
-        while peek_line(sam).startswith("@"):
-            sam.readline()
-
-        for line in sam:
-            if not line.startswith(read_id):
-                continue
-
-            line = line.split("\t")
-            sequence = line[9]
-
-            for field in line[11:]:
-                if field.startswith("mv:B:c"):
-                    move_table = field[9:]
-                    stride = int(field[7])
-
-                elif field.startswith("ts:i:"):
-                    trimmed_samples = int(field[5:])
-
-            if not move_table:
-                continue
-
-            moves = list(map(int, move_table.split(",")))
-
-            return sequence, moves, trimmed_samples, stride
-
-    return None
+NUCLEOTIDE_TO_COLOR = {"A": "red", "T": "blue", "U": "blue", "C": "yellow", "G": "green"}
+DEFAULT_COLOR = "gray"
 
 
-def load_signal_fast5(path: str, read_id: str):
-    with h5py.File(path, "r") as file:
-        for read in file:
-            if file[f"{read}/Raw"].attrs["read_id"].decode("utf-8") != read_id:
-                continue
+def load_read(sam_filename, signals_dir, read_id):
+    """Return (SamRecord, signal_in_pA, sampling_rate) for one read."""
+    record = find_sam_record(sam_filename, read_id)
+    if record is None:
+        raise ValueError(f"Read {read_id} not found in the SAM file")
+    if not record.moves:
+        raise ValueError(f"Read {read_id} has no move table (mv tag) in the SAM file")
 
-            raw_signal = list(file[f"{read}/Raw/Signal"])
-            channel_id = file[f"{read}/channel_id"]
+    signals = load_signals(signals_dir, {read_id})
+    if read_id not in signals:
+        raise ValueError(f"Signal of read {read_id} not found in the POD5/FAST5 files")
 
-            digitisation = channel_id.attrs["digitisation"]
-            offset = channel_id.attrs["offset"]
-            range = channel_id.attrs["range"]
-            sampling_rate = channel_id.attrs["sampling_rate"]
-
-            signal_in_pA = (raw_signal + offset) * range / digitisation
-
-            return signal_in_pA, sampling_rate
-
-    return None
+    signal_in_pA, sampling_rate = signals[read_id]
+    return record, signal_in_pA, sampling_rate
 
 
-def load_signal_pod5(path: str, read_id: str):
-    with p5.Reader(path) as reader:
-        for read in reader.reads([read_id], missing_ok=True):
-            signal_in_pA = read.signal_pa
-            sampling_rate = read.run_info.sample_rate
-            return signal_in_pA, sampling_rate
+def create_signal_figure(signal_in_pA, sampling_rate, record, read_id, sample_range=None):
+    """
+    Plot the raw signal and highlight each basecalled base with its colour.
+    `sample_range=(start, stop)` limits the plot to a part of the signal.
+    """
+    start, stop = sample_range or (0, len(signal_in_pA))
+    time_in_ms = np.arange(start, stop) / sampling_rate * 1000
 
-    return None
+    fig = Figure(figsize=(14, 6))
+    ax = fig.add_subplot()
+    ax.plot(time_in_ms, signal_in_pA[start:stop], color="black", linewidth=0.8)
+    ax.set_title(f"Signal from read {read_id}")
+    ax.set_xlabel("Time [ms]")
+    ax.set_ylabel("Signal [pA]")
 
+    # one (start, width) span in ms per base, grouped by colour
+    spans = defaultdict(list)
+    boundaries = base_boundaries(record)
 
-def load_signal(dir_path, read_id):
-    if isinstance(dir_path, str):
-        dir_paths = [dir_path]
-    if isinstance(dir_path, list):
-        dir_paths = dir_path
+    for nucleotide, base_start, base_stop in zip(record.sequence, boundaries, boundaries[1:]):
+        lo = max(base_start, start)
+        hi = min(base_stop, stop)
+        if lo < hi:
+            color = NUCLEOTIDE_TO_COLOR.get(nucleotide, DEFAULT_COLOR)
+            spans[color].append((lo / sampling_rate * 1000, (hi - lo) / sampling_rate * 1000))
 
-    queue = dir_paths.copy()
-    files: list[str] = []
+    for color, xranges in spans.items():
+        # y in axes coordinates (0–1), so the spans cover the full height
+        ax.broken_barh(
+            xranges, (0, 1), facecolors=color, alpha=0.1, linewidth=0,
+            transform=ax.get_xaxis_transform(),
+        )
 
-    while queue:
-        path = queue.pop(0)
-
-        if os.path.isdir(path):
-            queue.extend([os.path.join(path, f) for f in os.listdir(path)])
-        else:
-            files.append(path)
-
-    file_count = len(files)
-    for i, path in enumerate(files):
-        # progress_callback(1 / file_count)
-        if path.endswith(".fast5"):
-            signal_tuple = load_signal_fast5(path, read_id)
-            if signal_tuple:
-                return signal_tuple
-
-        if path.endswith(".pod5"):
-            signal_tuple = load_signal_pod5(path, read_id)
-            if signal_tuple:
-                return signal_tuple
-
-    return None
+    ax.set_xlim(start / sampling_rate * 1000, stop / sampling_rate * 1000)
+    ax.autoscale(axis="y")
+    return fig
 
 
-def plot_signal(
-    signal_tuple,
-    sam_search_result: tuple[str, list[int], int, int],
-    read_id: str,
-):
+def show_figure(fig, title):
+    """Show a figure in a new window. Must be called from the GUI thread."""
+    window = ctk.CTkToplevel()
+    window.title(title)
 
-    nucleotide_sequence, moves, trimmed_samples, stride = sam_search_result
+    canvas = FigureCanvasTkAgg(fig, master=window)
+    NavigationToolbar2Tk(canvas, window).update()
+    canvas.get_tk_widget().pack(fill="both", expand=True)
+    canvas.draw()
 
-    signal_in_pA, sampling_rate = signal_tuple
-
-    # Iterating over the move array to calculate signal_points
-    zero_count = 0
-    signal_points = []
-
-    for move in moves:
-        if move == 1:
-            signal_point = (zero_count + 1) * stride
-            signal_points.append(signal_point)
-            zero_count = 0
-        else:
-            zero_count += 1
-
-    # Calculate cumulative sum of signal_points
-    cumulative_points = np.cumsum(signal_points)
-
-    # Calculate segment boundaries based on cumulative_points starting from trimmed_samples
-    segment_boundaries = [trimmed_samples]
-
-    for point in cumulative_points:
-        segment_boundaries.append(trimmed_samples + point)
-
-    nucleotide_to_color = {"A": "red", "T": "blue", "C": "yellow", "G": "green"}
-    default_color = "gray"
-
-    time_in_ms = np.arange(len(signal_in_pA)) / sampling_rate * 1000
-
-    plt.figure(figsize=(14, 6))
-    plt.plot(time_in_ms, signal_in_pA, color="black")
-    plt.title(f"Signal from read {read_id}")
-    plt.xlabel("Time [ms]")
-    plt.ylabel("Signal [pA]")
-
-    segment_boundaries_in_ms = np.array(segment_boundaries) / sampling_rate * 1000
-
-    for i, nucleotide in enumerate(nucleotide_sequence):
-        start = segment_boundaries_in_ms[i]
-        end = segment_boundaries_in_ms[i + 1]
-        color = nucleotide_to_color.get(nucleotide, default_color)
-        plt.axvspan(start, end, color=color, alpha=0.1)
-
-    plt.show()
+    # CTkToplevel can open behind the main window
+    window.after(200, window.lift)

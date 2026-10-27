@@ -55,9 +55,11 @@ python main.py
 
 | Data | Format | Notes |
 |---|---|---|
-| Basecalled reads | SAM | Must contain move tables (`mv:B:c` tag) and trimmed samples (`ts:i` tag). With Dorado, use `dorado basecaller ... --emit-moves --emit-sam`. |
-| Raw signals | FAST5 or POD5 | Pass a directory; it is searched recursively, and FAST5 and POD5 files can be mixed. |
-| Query sequence | text or FASTA | Paste a sequence or select a FASTA file. |
+| Basecalled reads | SAM | Unaligned or aligned. Must contain move tables (`mv:B:c` tag) and trimmed samples (`ts:i` tag). With Dorado, use `dorado basecaller ... --emit-moves --emit-sam`. |
+| Raw signals | FAST5 or POD5 | Pass a directory; it is searched recursively. Single-read and multi-read FAST5 files and POD5 files can be mixed. |
+| Query sequences | text or FASTA | Paste one sequence, or select a FASTA file with one or more sequences. |
+
+In an aligned SAM file, secondary and supplementary alignments are ignored, and reads aligned to the reverse strand are reverse complemented back to the orientation in which they passed through the pore, so that the sequence matches the move table and the raw signal.
 
 ## Workflow
 
@@ -69,11 +71,11 @@ Find reads that contain a query sequence.
 
 1. **SAM to FASTA:** select the SAM file and convert it to FASTA.
 2. **BLAST database:** select the FASTA file and a directory where the nucleotide BLAST database (named `blastdb`) will be created with `makeblastdb`.
-3. **Run BLAST:** select the database directory, paste the query sequence (or tick *Use FASTA file instead* and select a FASTA file) and run `blastn`.
+3. **Run BLAST:** select the database directory, paste the query sequence (or tick *Use FASTA file instead* and click *Select query FASTA file*) and run `blastn`. Each sequence in the FASTA file is searched separately.
 
-The result is saved as a tab-separated TSV file with a header and standard BLAST columns: `qseqid`, `sseqid` (the read ID), `pident`, `length`, `mismatch`, `gapopen`, `qstart`, `qend`, `sstart`, `send`, `evalue`, `bitscore`.
+The result is saved as a tab-separated TSV file with a header and standard BLAST columns: `qseqid` (the query sequence name from the FASTA file, or `Query` for a pasted sequence), `sseqid` (the read ID), `pident`, `length`, `mismatch`, `gapopen`, `qstart`, `qend`, `sstart`, `send`, `evalue`, `bitscore`.
 
-The search uses `evalue = 0.001` and `max_target_seqs = 1000`. Hits with an alignment shorter than the query length minus 10 nt are discarded.
+The search uses `evalue = 0.001` and `max_target_seqs = 1000000` (the maximum number of reads reported for each query sequence). Hits with an alignment shorter than the length of their query sequence minus 10 nt are discarded.
 
 ### 2. Export
 
@@ -82,14 +84,24 @@ Extract the raw signal segments that correspond to the BLAST hits.
 1. Select the directory with the POD5/FAST5 files, the SAM file and the TSV file from the Search tab.
 2. Click **CREATE PARQUET FILE** or **CREATE CSV FILE** and choose the output path.
 
-For each hit, NANOSLAST combines the alignment coordinates (`sstart`, `send`) with the move table, stride and trimmed samples from the SAM file to calculate the start and end of the signal segment. The signal is converted to picoamperes.
+For each read, NANOSLAST takes the best BLAST hit (highest bitscore, across all query sequences) and combines its coordinates (`sstart`, `send`) with the move table, stride and trimmed samples from the SAM file to calculate where the hit starts and ends in the raw signal. Each element of the move table covers `stride` signal samples after the first `ts` trimmed samples, and a `1` marks the start of a new base, so the segment runs from the first sample of the first matched base to the last sample of the last matched base. Signals are in picoamperes.
 
-Output columns:
+The two output formats contain different data:
 
-- **CSV:** `read_id`, `sequence` (matched subsequence), `start_idx`, `stop_idx` (positions in the read), `signal` (values separated by `;`), `start_signal`, `stop_signal` (sample indices), `direction` (`1` = forward, `-1` = reverse)
-- **Parquet:** `read_id`, `signal` (the extracted signal segment)
+- **CSV** contains the **whole signal of the read** together with the position of the hit in it, one row per read:
+  - `read_id`
+  - `query_id`: name of the query sequence that was found (`qseqid`)
+  - `sequence`: the matched part of the basecalled read
+  - `start_idx`, `stop_idx`: first and last matched base in the read (1-based, inclusive, as in BLAST)
+  - `signal`: the whole raw signal of the read in pA, values separated by `;`
+  - `start_signal`, `stop_signal`: sample range of the hit in `signal` (0-based, `stop_signal` exclusive, so the segment is `signal[start_signal:stop_signal]`)
+  - `direction`: `1` if the query matched the read's forward strand, `-1` if it matched the reverse complement
+- **Parquet** contains **only the signal segment of the hit**, one row per read:
+  - `read_id`
+  - `query_id`: name of the query sequence that was found (`qseqid`)
+  - `signal`: the part of the raw signal that corresponds to the hit, in pA
 
-If a read has more than one hit in the TSV, only the last one is used.
+Reads that are not in the SAM file, have no move table, or whose signal is not found in the POD5/FAST5 files are skipped. The final message reports how many reads were exported.
 
 ### 3. Plot
 
@@ -98,7 +110,20 @@ Visualize a whole read's signal together with its basecalled sequence.
 1. Select the SAM file and the directory with POD5/FAST5 files.
 2. Enter a read ID and click **PLOT SIGNAL**.
 
-The signal is plotted in pA against time in ms. Each base is highlighted with a coloured segment: A red, T blue, C yellow, G green.
+The plot opens in a new window with zoom and pan tools. The signal is plotted in pA against time in ms. Each base is highlighted with a coloured segment: A red, T blue, C yellow, G green.
+
+## Testing
+
+`tests/test_workflow.py` runs the whole workflow (SAM → FASTA, BLAST, export, plotting) on synthetic reads with known signal positions and checks that every exported segment matches the BLAST hit exactly. It needs BLAST+ on `PATH`:
+
+```bash
+python tests/test_workflow.py            # runs in a temporary directory
+python tests/test_workflow.py test_out   # keeps the test data, exports and plots in test_out/
+```
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md). Version 1.1.0 fixes the conversion of BLAST hit positions to signal positions; signal segments exported with version 1.0.0 are shifted by a few samples.
 
 ## Project structure
 
@@ -106,17 +131,23 @@ The signal is plotted in pA against time in ms. Each base is highlighted with a 
 NANOSLAST/
 ├── main.py                    # starts the application
 ├── requirements.txt
+├── CHANGELOG.md
+├── tests/
+│   └── test_workflow.py       # end-to-end test on synthetic data
 └── nanoslast/
+    ├── __init__.py            # version number
     ├── app.py                 # main window with the tabs
     ├── search_part.py         # Search tab GUI
     ├── convert_sam_file.py    # SAM → FASTA conversion
     ├── create_blastdb.py      # BLAST database creation (makeblastdb)
     ├── blasting.py            # BLAST search (blastn) and hit filtering
     ├── export_part.py         # Export tab GUI
-    ├── parquet_tool.py        # signal segment calculation, FAST5/POD5 loading, CSV/Parquet export
+    ├── parquet_tool.py        # best hit per read, signal segment calculation, CSV/Parquet export
     ├── plot_part.py           # Plot tab GUI
-    ├── plotting.py            # signal loading and plotting for a single read
-    ├── plot_specific_part.py  # experimental tab for plotting a specific segment (disabled)
+    ├── plotting.py            # plotting of a read's signal with its bases
+    ├── sam_reader.py          # SAM parsing, move table → signal positions
+    ├── signal_reader.py       # POD5 and FAST5 signal loading
+    ├── background.py          # runs long tasks without freezing the GUI
     └── assets/
         └── nanoslast_logo.png
 ```

@@ -1,8 +1,8 @@
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
-import threading
 import os
-from .plotting import plot_signal, load_signal, sam_file_signal_search
+from .background import run_in_background
+from .plotting import create_signal_figure, load_read, show_figure
 from PIL import Image
 from customtkinter import CTkImage
 
@@ -40,7 +40,7 @@ def create_plot_part(parent_frame):
     read_id_var = ctk.StringVar()
     ctk.CTkEntry(col3, textvariable=read_id_var, width=250).pack(pady=5)
 
-    ctk.CTkButton(col3, text="PLOT SIGNAL", command=lambda: threaded_plot_signal(state, read_id_var.get())).pack(pady=20)
+    ctk.CTkButton(col3, text="PLOT SIGNAL", command=lambda: threaded_plot_signal(frame, state, read_id_var.get())).pack(pady=20)
 
 
     # ========== LOGO ==========
@@ -48,7 +48,7 @@ def create_plot_part(parent_frame):
     image = CTkImage(light_image=Image.open(image_path), size=(200, 78))
 
     image_label = ctk.CTkLabel(parent_frame, image=image, text="")
-    image_label.pack(pady=(10, 20))  # odsazení od layoutu výš
+    image_label.pack(pady=(10, 20))
 
     return frame
 
@@ -63,8 +63,8 @@ def select_file(label, state, key, directory=False):
         messagebox.showerror("Error", str(e))
 
 
-def threaded_plot_signal(state, read_id):
-    # from signal_plot import sam_file_signal_search, load_signal, plot_signal
+def threaded_plot_signal(widget, state, read_id):
+    read_id = read_id.strip()
 
     if not read_id:
         messagebox.showerror("Error", "Please provide a read ID")
@@ -74,17 +74,8 @@ def threaded_plot_signal(state, read_id):
         messagebox.showerror("Error", "Missing SAM file or signal directory")
         return
 
-    def worker():
-        try:
-            sam_data = sam_file_signal_search(state["sam"], read_id)
-            signal_data = load_signal(state["signals_dir"], read_id)
+    def work(progress):
+        record, signal_in_pA, sampling_rate = load_read(state["sam"], state["signals_dir"], read_id)
+        return create_signal_figure(signal_in_pA, sampling_rate, record, read_id)
 
-            if not sam_data or not signal_data:
-                messagebox.showerror("Error", "Read ID or signal not found")
-                return
-
-            plot_signal(signal_data, sam_data, read_id)
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
-    threading.Thread(target=worker).start()
+    run_in_background(widget, work, lambda fig: show_figure(fig, f"Signal from read {read_id}"))
