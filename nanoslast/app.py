@@ -1,8 +1,8 @@
 import customtkinter as ctk
+from . import __version__
 from .search_part import create_search_part
 from .plot_part import create_plot_part
 from .export_part import create_export_part
-from .plot_specific_part import create_plot_specific_signal_part
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -10,7 +10,7 @@ ctk.set_default_color_theme("blue")
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("NANOSLAST")
+        self.title(f"NANOSLAST {__version__}")
         self.geometry("1000x500")
 
         self.tabview = ctk.CTkTabview(self,
@@ -22,12 +22,10 @@ class App(ctk.CTk):
         self.tabview.add("Search")
         self.tabview.add("Export")
         self.tabview.add("Plot")
-        # self.tabview.add("Plot Specific Signal")
 
         create_search_part(self.tabview.tab("Search"))
         create_export_part(self.tabview.tab("Export"))
         create_plot_part(self.tabview.tab("Plot"))
-        # create_plot_specific_signal_part(self.tabview.tab("Plot Specific Signal"))  # Přidání nové části
 
 
         self.tabview._segmented_button.configure(
