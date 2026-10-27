@@ -1,0 +1,10 @@
+# Biopython 1.86+ removed Bio.Blast.Applications, which NANOSLAST uses to call BLAST+
+biopython>=1.79,<1.86
+customtkinter>=5.2
+h5py>=3.8
+matplotlib>=3.7
+numpy>=1.24
+pandas>=2.0
+pillow>=9.0
+pod5>=0.3
+pyarrow>=12.0
