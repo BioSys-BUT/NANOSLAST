@@ -3,12 +3,12 @@ from tkinter import filedialog, messagebox
 import threading
 import os
 
-from parquet_tool import (
+from .parquet_tool import (
     extract_info_from_tsv,
     sam_file_signal_search,
     load_signals,
 )
-from plotting import plot_signal
+from .plotting import plot_signal
 
 
 def create_plot_specific_signal_part(parent_frame):

@@ -2,7 +2,7 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import threading
 import os
-from plotting import plot_signal, load_signal, sam_file_signal_search
+from .plotting import plot_signal, load_signal, sam_file_signal_search
 from PIL import Image
 from customtkinter import CTkImage
 
@@ -44,8 +44,8 @@ def create_plot_part(parent_frame):
 
 
     # ========== LOGO ==========
-    image_path = "nanoslast_logo.png"  # nebo tvá reálná cesta k souboru
-    image = CTkImage(light_image=Image.open(image_path), size=(200, 70))
+    image_path = os.path.join(os.path.dirname(__file__), "assets", "nanoslast_logo.png")
+    image = CTkImage(light_image=Image.open(image_path), size=(200, 78))
 
     image_label = ctk.CTkLabel(parent_frame, image=image, text="")
     image_label.pack(pady=(10, 20))  # odsazení od layoutu výš
