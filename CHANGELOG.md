@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0 (not released yet)
+## 2.0.0 (2026-10-29)
 
 NANOSLAST is now a command line tool. **The graphical interface was removed**; version 1.1.0 is the last one with it.
 
