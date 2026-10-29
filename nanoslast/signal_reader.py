@@ -1,11 +1,13 @@
 import os
+from collections import defaultdict
+
 import h5py
 import numpy as np
 import pod5 as p5
 
 
 def find_signal_files(dir_path) -> list[str]:
-    """Recursively collect .pod5 and .fast5 files from one or more directories."""
+    """Recursively collect .pod5 and .fast5 files from one or more directories (or files)."""
     queue = [dir_path] if isinstance(dir_path, str) else list(dir_path)
     files = []
 
@@ -18,6 +20,51 @@ def find_signal_files(dir_path) -> list[str]:
             files.append(path)
 
     return files
+
+
+class SignalIndex:
+    """
+    Which POD5/FAST5 file contains which read. Built once from the read IDs stored
+    in the files (signals are not read), so that signals can then be loaded only
+    from the files that contain them.
+    """
+
+    def __init__(self, dir_path):
+        self.file_of = {}
+        for file_path in find_signal_files(dir_path):
+            for read_id in _read_ids(file_path):
+                self.file_of[read_id] = file_path
+
+    def __contains__(self, read_id):
+        return read_id in self.file_of
+
+    def __len__(self):
+        return len(self.file_of)
+
+    def load(self, read_ids) -> dict:
+        """{read_id: (signal_in_pA, sampling_rate)} for the reads that are in the index."""
+        by_file = defaultdict(set)
+        for read_id in read_ids:
+            if read_id in self.file_of:
+                by_file[self.file_of[read_id]].add(read_id)
+
+        result = {}
+        for file_path, ids in by_file.items():
+            reader = read_pod5 if file_path.endswith(".pod5") else read_fast5
+            for read_id, signal, sampling_rate in reader(file_path, ids):
+                result[read_id] = (signal, sampling_rate)
+        return result
+
+
+def _read_ids(file_path):
+    if file_path.endswith(".pod5"):
+        with p5.Reader(file_path) as reader:
+            return [str(read_id) for read_id in reader.read_ids]
+
+    with h5py.File(file_path, "r") as f:
+        if "Raw/Reads" in f:
+            return [_decode(group.attrs["read_id"]) for group in f["Raw/Reads"].values()]
+        return [_decode(group["Raw"].attrs["read_id"]) for group in f.values() if "Raw" in group]
 
 
 def read_pod5(file_path, read_ids):
@@ -59,21 +106,7 @@ def load_signals(dir_path, read_ids) -> dict:
     Load signals of the given reads from all POD5/FAST5 files in a directory.
     Returns {read_id: (signal_in_pA, sampling_rate)} for the reads that were found.
     """
-    remaining = set(read_ids)
-    result = {}
-
-    for file_path in find_signal_files(dir_path):
-        if not remaining:
-            break
-
-        reader = read_pod5 if file_path.endswith(".pod5") else read_fast5
-
-        for read_id, signal, sampling_rate in reader(file_path, remaining):
-            result[read_id] = (signal, sampling_rate)
-
-        remaining -= result.keys()
-
-    return result
+    return SignalIndex(dir_path).load(read_ids)
 
 
 def _decode(value) -> str:

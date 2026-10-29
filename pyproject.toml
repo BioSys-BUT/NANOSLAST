@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanoslast"
+dynamic = ["version"]
+description = "Nanopore Signal Local Alignment and Segmentation Tool"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Marketa Jakubickova", email = "jakubickova@vut.cz" },
+    { name = "Michaela Zbudilova" },
+    { name = "Martin Suriak" },
+    { name = "Helena Vitkova" },
+]
+dependencies = [
+    "biopython>=1.79",
+    "h5py>=3.8",
+    "matplotlib>=3.7",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pod5>=0.3",
+    "pyarrow>=12.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/BioSys-BUT/NANOSLAST"
+
+[project.scripts]
+nanoslast = "nanoslast.cli:main"
+
+[tool.setuptools]
+packages = ["nanoslast"]
+
+[tool.setuptools.dynamic]
+version = { attr = "nanoslast.__version__" }
